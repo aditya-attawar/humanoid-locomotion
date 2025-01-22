@@ -24,15 +24,15 @@ if train_model:
     print("Defining policy structure")
     policy_kwargs = dict(
         net_arch=dict(
-            pi=[256, 256],  # Policy network architecture: 2 layers of 256 units each
-            vf=[256, 256],  # Value network architecture: 2 layers of 256 units each
+            pi=[512, 512],  # Policy network architecture: 2 layers of 256 units each
+            vf=[512, 512],  # Value network architecture: 2 layers of 256 units each
         ),
         activation_fn=nn.ReLU,  # Use the actual ReLU function, not a string
     )
 
     # Training Parameters
     print("Defining training parameters...")
-    total_timesteps = 5_000_000  # Total training steps
+    total_timesteps = 10_000_000  # Total training steps
     # checkpoint_interval = 100_000  # Save the model every 100k steps
 
     # Create the environment
@@ -58,7 +58,7 @@ if train_model:
     # Profiling the training
     profiler_output = "training_profile.prof"
     print("Profiling training...")
-    cProfile.run("model.learn(total_timesteps=10000)", profiler_output)
+    cProfile.run("model.learn(total_timesteps=10000000)", profiler_output)
 
     # Analyzing the profiling output
     print("Analyzing profiling results...")
