@@ -1,22 +1,49 @@
 import gymnasium as gym
 import imageio
 from tqdm import tqdm
-# import numpy as np
-from stable_baselines3 import PPO
+import numpy as np
+from stable_baselines3 import PPO, SAC
 from stable_baselines3.common.env_util import make_vec_env
 from torch import nn  # Import activation functions
 import multiprocessing
-# import os
+import os
 import cProfile
 import pstats
+from huggingface_sb3 import load_from_hub
+import shutil
+from gymnasium.spaces import Box
+from pathlib import Path
+
+
+class PreprocessObservationWrapper(gym.ObservationWrapper):
+    def __init__(self, env):
+        super().__init__(env)
+        # Update observation space to match model's requirement
+        self.observation_space = Box(-np.inf, np.inf, (45,), dtype=np.float32)
+
+    def observation(self, obs):
+        # Preprocess observation to match the model's expected shape
+        # Here we assume the relevant data is in the first 45 dimensions
+        # Adjust this if the model expects different preprocessing
+        return obs[:45]
+
+
+# Wrap the environment
+env_id = "HumanoidStandup-v5"
+test_env = gym.make(env_id)
+test_env = PreprocessObservationWrapper(test_env)
+observation, _ = test_env.reset()
+print("Processed observation shape:", observation.shape)
+assert observation.shape == (45,), "Observation shape mismatch"
+
 
 # print(gym.envs.registry.keys())
-train_model = True
+train_model = False
 test_model = True
 save_video = True
 
 env_id = "HumanoidStandup-v5"  # The environment ID
-save_path = "ppo_humanoid_model"  # Path to save the model
+save_path = "humanoid_model"  # Path to save the model
 
 if train_model:
 
@@ -79,25 +106,44 @@ if train_model:
     model.save(save_path)
     print(f"Model saved to {save_path}")
 
+else:
+    from huggingface_sb3 import load_from_hub
+    print("Downloading the model...")
+    filename="humanoidstandup-v5-sac-expert.zip"
+    model_path_alias = load_from_hub(
+        repo_id="farama-minari/HumanoidStandup-v5-SAC-expert",
+        filename=filename,
+    )
+    model_path = os.path.realpath(model_path_alias)
+    temp_filename = Path(model_path).name
+    print(f"Model downloaded to {model_path}")
+    print("Moving the model to parent directory...")
+    if os.path.exists(temp_filename):
+        os.remove(temp_filename)
+    shutil.move(model_path, os.getcwd())
+    os.rename(temp_filename, save_path+".zip")
+    print(f"Model moved to ", "./"+save_path+".zip")
 
- # Test the trained model
+
+# Test the trained model
 if test_model:
     if not train_model:
         # Load the model
         print("Loading the model...")
-        model = PPO.load(save_path)
+        model = SAC.load(save_path)
         print(f"Model loaded from {save_path}")
 
-    # env = gym.make("HumanoidStandup-v5", render_mode=("rgb_array" if save_video else "human"), width=1280, height=720)
-    # print(env.action_space)
-
     if save_video:
-        frames = []
+        # Define the output video writer
+        video_writer = imageio.get_writer("humanoid_standup.mp4", fps=30)
 
     print("Testing the trained model...")
     test_env = gym.make(env_id, render_mode=("rgb_array" if save_video else "human"), width=1280, height=720)
+    test_env = PreprocessObservationWrapper(test_env)  # Apply wrapper here
     observation, _ = test_env.reset(seed=42)
-    # print(observation.shape[0])
+
+    print("Environment observation space:", test_env.observation_space)
+    print("Expected observation space from the model:", model.observation_space)
 
     max_steps = 1000
     for _ in tqdm(range(max_steps), total=max_steps, unit="step", desc="Progress"):
@@ -105,19 +151,13 @@ if test_model:
         # action = test_env.action_space.sample()
         observation, reward, terminated, truncated, _ = test_env.step(action)
         if save_video:
-            frames.append(test_env.render())  # Collect frames
+            video_writer.append_data(test_env.render()) # append the frame to the video
         # print(reward)
         # print(observation, reward, terminated, truncated)
         if terminated or truncated:
             # print(f"Episode ended at step {step}")
             observation, _ = test_env.reset()
 
+    video_writer.close()
     test_env.close()
-
-    # Save the frames as a video
-    if save_video:
-        print("Saving the video...")        
-        with imageio.get_writer("humanoid_standup.mp4", fps=30) as video:
-            for frame in frames:
-                video.append_data(frame)
-        print("Video saved.")
+    print("Video saved.")
